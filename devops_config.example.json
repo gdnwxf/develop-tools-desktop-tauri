@@ -1,0 +1,19 @@
+{
+  "default_expand": "all",
+  "max_log_history": 7,
+  "max_log_response_size": 1024,
+  "devops_config": [
+    {
+      "group": "db",
+      "items": [{ "name": "Superset 示例", "type": "sprt", "url": "https://superset.example.com/", "user": "", "password": "" }]
+    },
+    {
+      "group": "grafana",
+      "items": [{ "name": "Grafana 示例", "type": "grafana", "url": "https://grafana.example.com/", "user": "", "password": "", "first_open_url": "/" }]
+    },
+    {
+      "group": "quanyou-admin",
+      "items": [{ "name": "全有后台示例", "type": "quanyou-admin", "url": "https://admin.example.com/", "user": "", "password": "", "optsecret": "" }]
+    }
+  ]
+}

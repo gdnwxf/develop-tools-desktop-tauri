@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:;" />
+  <title>DevOps 工具集</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 左侧:分组列表(可折叠,动态生成) -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span class="brand">🧰 DevOps</span>
+        <button id="collapseBtn" class="collapse-btn" title="折叠/展开侧栏">☰</button>
+        <div class="header-actions">
+          <button id="expandAllBtn" class="header-btn" title="全部展开">+</button>
+          <button id="collapseAllBtn" class="header-btn" title="全部折叠">−</button>
+        </div>
+        <button id="clearLogsBtn" class="header-btn" title="清空所有日志文件">🗑</button>
+      </div>
+      <ul id="siteList"><!-- 分组与站点由 renderer 模块注入 --></ul>
+      <div class="sidebar-footer">
+        <button id="reloadBtn" title="刷新当前页">🔄 刷新</button>
+      </div>
+    </aside>
+
+    <!-- 右侧:webview 面板(每个站点独立 webview,切换显示/隐藏) -->
+    <main id="content">
+      <div id="tabBar"><!-- 打开站点的标签页(展开分组自动产生) --></div>
+      <div id="toastContainer"></div>
+      <div id="webviewContainer"><!-- 各站点 webview 动态注入 --></div>
+      <div id="placeholder">
+        <div class="placeholder-card">
+          <span class="placeholder-icon">🧰</span>
+          <p>点击左侧分组展开站点列表,再点击站点打开</p>
+          <p class="placeholder-sub">展开分组仅显示站点列表,点击站点才会打开并自动登录</p>
+        </div>
+      </div>
+    </main>
+  </div>
+  <!-- renderer 模块按序加载,共享全局作用域:state -> sidebar -> webview -> navigation -> tabs -> menus -> main(入口) -->
+  <script src="renderer/bridge.js"></script>
+  <script src="renderer/native-layout.js"></script>
+  <script src="renderer/native-webview.js"></script>
+  <script src="renderer/state.js"></script>
+  <script src="renderer/sidebar.js"></script>
+  <script src="renderer/webview.js"></script>
+  <script src="renderer/navigation.js"></script>
+  <script src="renderer/navigation-scripts.js"></script>
+  <script src="renderer/tabs.js"></script>
+  <script src="renderer/menus.js"></script>
+  <script src="renderer/main.js"></script>
+</body>
+</html>

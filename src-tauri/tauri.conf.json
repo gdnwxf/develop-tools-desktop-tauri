@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DevOps 工具集 Tauri",
+  "version": "0.1.1",
+  "identifier": "com.comeaffiliate.develop-tools-tauri",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "shell", "create": false, "title": "DevOps 工具集 Tauri", "width": 1440, "height": 900, "minWidth": 1000, "minHeight": 680 }],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:",
+      "capabilities": ["shell"]
+    }
+  },
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icon.ico"] }
+}

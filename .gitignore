@@ -1,0 +1,7 @@
+src-tauri/target/
+src-tauri/gen/
+artifacts/
+tests/.smoke-*/
+node_modules/
+*.log
+update-qh-*.md

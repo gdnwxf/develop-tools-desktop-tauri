@@ -1,0 +1,14 @@
+{
+  "name": "devops-tools-tauri",
+  "version": "0.1.1",
+  "private": true,
+  "description": "DevOps 工具集 Tauri 2 / WebView2 桌面版",
+  "license": "GPL-3.0",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "test": "node --test --test-isolation=none tests/*.test.cjs",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:smoke": "node tests/desktop-smoke.cjs"
+  }
+}
