@@ -2,6 +2,7 @@
 mod commands;
 mod config;
 mod context_menu;
+mod log_writer;
 mod request_log;
 mod session;
 mod totp;
@@ -16,7 +17,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = request_log::cleanup(&config.data_dir, config.retention_days) {
         eprintln!("[request-log] cleanup failed={e}");
     }
-    tauri::Builder::default()
+    // 过期文件清理完成后再启动写入线程，避免清理与写入并发操作同一批文件。
+    log_writer::start(4096);
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_window("shell") {
                 let _ = window.unminimize();
@@ -42,7 +45,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             session::start(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?;
+    app.run(|_, event| {
+        // 退出前关闭写入线程，确保缓冲日志落盘。
+        if let tauri::RunEvent::Exit = event {
+            request_log::shutdown();
+        }
+    });
     Ok(())
 }
 

@@ -136,7 +136,20 @@ async function stopApp() {
   await shell.evaluate('sidebar.classList.add("collapsed"); true');
   await until(() => shell.evaluate('webviews[currentSiteId].getBounds().x < ' + originalBounds.x),'sidebar layout');
   const inspectActive = () => shell.evaluate('window.desktopApp.invoke("inspect_view",{label:webviews[currentSiteId].label})');
+  // tauri::Rect 序列化为 {Physical:{x,y}} 或 {Logical:{x,y}}，统一取 x。
+  const boundsX = (bounds) => {
+    const position = bounds && bounds.position;
+    if (!position) return -1;
+    if (typeof position.x === 'number') return position.x;
+    const inner = position.Physical || position.Logical;
+    return inner && typeof inner.x === 'number' ? inner.x : -1;
+  };
   await until(async () => (await inspectActive()).visible, 'active native view visible');
+  // 原生视图边界是异步应用的：折叠侧栏后必须等 inspect 到的边界同步，否则 beforeMenu 会抓到旧布局。
+  await until(async () => {
+    const x = boundsX((await inspectActive()).bounds);
+    return x >= 0 && x < originalBounds.x;
+  }, 'native bounds applied after sidebar collapse');
   const beforeMenu = await inspectActive();
   const colorScript = '(()=>{document.documentElement.style.backgroundColor="rgb(18,90,130)";document.body.style.backgroundColor="rgb(18,90,130)";return true})()';
   await shell.evaluate('webviews[currentSiteId].executeJavaScript(' + JSON.stringify(colorScript) + ')');

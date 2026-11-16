@@ -28,14 +28,14 @@ pub fn sanitized_url(value: &str) -> String {
 }
 
 pub fn append(path: &Path, event: serde_json::Value) -> Result<(), String> {
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
-    let line = serde_json::to_string(&json!({"ts":SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis(),"event":event})).map_err(|e| e.to_string())?;
-    writeln!(file, "{line}").map_err(|e| e.to_string())
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let line =
+        serde_json::to_string(&json!({"ts": ts, "event": event})).map_err(|e| e.to_string())?;
+    // 入队即返回；真正的文件 IO 与 flush 在后台写入线程完成。
+    crate::log_writer::append(path, line)
 }
 
 pub fn cleanup(root: &Path, retention_days: u64) -> Result<usize, String> {
@@ -67,23 +67,15 @@ pub fn cleanup(root: &Path, retention_days: u64) -> Result<usize, String> {
 }
 
 pub fn clear_all(root: &Path) -> Result<usize, String> {
-    let logs = root.join("logs");
-    if !logs.exists() {
-        return Ok(0);
-    }
-    let mut removed = 0;
-    for entry in fs::read_dir(logs).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            continue;
-        }
-        let file = entry.path().join("requests.log");
-        if file.is_file() {
-            fs::write(&file, []).map_err(|e| e.to_string())?;
-            removed += 1;
-        }
-    }
-    Ok(removed)
+    crate::log_writer::clear_all(root)
+}
+
+pub fn clear_path(path: &Path) -> Result<(), String> {
+    crate::log_writer::clear_path(path)
+}
+
+pub fn shutdown() {
+    crate::log_writer::shutdown();
 }
 
 #[cfg(test)]

@@ -115,9 +115,8 @@ fn log_action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
     let info = views::info(app, label)?;
     match action {
         "register" => {
-            if !info.log_path.exists() {
-                request_log::append(&info.log_path, json!({"kind":"session","label":label}))?;
-            }
+            // 文件由写入线程异步创建，不能再用 exists() 判断首次注册；渲染层已保证每视图只注册一次。
+            request_log::append(&info.log_path, json!({"kind":"session","label":label}))?;
         }
         "open" => {
             open::that(&info.log_path).map_err(|e| e.to_string())?;
@@ -127,7 +126,7 @@ fn log_action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
                 .map_err(|e| e.to_string())?;
         }
         "clear" => {
-            std::fs::write(&info.log_path, []).map_err(|e| e.to_string())?;
+            request_log::clear_path(&info.log_path)?;
         }
         _ => return Err("不支持的日志动作".into()),
     }

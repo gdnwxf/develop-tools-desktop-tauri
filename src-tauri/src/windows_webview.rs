@@ -2,7 +2,7 @@ use crate::{config::Site, request_log};
 use serde_json::{json, Value};
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
@@ -126,12 +126,18 @@ struct NetworkLog {
 
 impl NetworkLog {
     fn write(&mut self, record: Value) {
-        if request_log::append(&self.path, record).is_err() && !self.write_failed {
-            self.write_failed = true;
-            eprintln!(
-                "[request-log] native metadata write failed: label={}",
-                self.label
-            );
+        if let Err(error) = request_log::append(&self.path, record) {
+            // 退出阶段写入线程已停止，属预期行为，不计入写入失败。
+            if error.contains("已停止") {
+                return;
+            }
+            if !self.write_failed {
+                self.write_failed = true;
+                eprintln!(
+                    "[request-log] native metadata write failed: label={}",
+                    self.label
+                );
+            }
         }
     }
 
@@ -182,9 +188,15 @@ impl NetworkLog {
                     self.terminal(id, "redirected", None);
                 }
                 if self.pending.len() >= 4096 {
-                    self.write(json!({"event":"backpressure", "label":self.label,
-                        "error":"pending metadata limit reached"}));
-                    return None;
+                    // 表满时淘汰最早开始的请求，把容量留给最新现场。
+                    if let Some(oldest) = self
+                        .pending
+                        .iter()
+                        .min_by_key(|(_, request)| request.started)
+                        .map(|(id, _)| id.clone())
+                    {
+                        self.terminal(&oldest, "evicted", Some("pending table full"));
+                    }
                 }
                 let method = params["request"]["method"]
                     .as_str()
@@ -264,15 +276,48 @@ struct BodyCaptureContext {
     max_response_size: usize,
     // 按 requestId 记录在途读取及其开始时间：回调未触发的条目超时后可回收，不会永久占满配额。
     inflight: Rc<RefCell<HashMap<String, Instant>>>,
+    // 被淘汰读取的 requestId：回调到达时丢弃结果，避免与后续请求错配或重复记录。
+    suppressed: Rc<RefCell<VecDeque<String>>>,
 }
 
 const RESPONSE_BODY_INFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_SUPPRESSED_IDS: usize = 64;
 
 // 回收超时未回调的在途读取；CDP 回调永不触发时不会永久占用并发配额。
 fn prune_inflight(inflight: &mut HashMap<String, Instant>, now: Instant) {
     inflight.retain(|_, started| {
         now.saturating_duration_since(*started) < RESPONSE_BODY_INFLIGHT_TIMEOUT
     });
+}
+
+// 淘汰最早的在途读取并记录抑制标记；返回 true 表示已让出配额。
+fn evict_oldest_inflight(
+    inflight: &mut HashMap<String, Instant>,
+    suppressed: &mut VecDeque<String>,
+) -> bool {
+    let Some(oldest) = inflight
+        .iter()
+        .min_by_key(|(_, started)| **started)
+        .map(|(id, _)| id.clone())
+    else {
+        return false;
+    };
+    inflight.remove(&oldest);
+    // 抑制集合同样有界，避免长期运行无限增长。
+    while suppressed.len() >= MAX_SUPPRESSED_IDS {
+        suppressed.pop_front();
+    }
+    suppressed.push_back(oldest);
+    true
+}
+
+// 回调到达时判断该读取是否已被淘汰。
+fn take_suppressed(suppressed: &mut VecDeque<String>, request_id: &str) -> bool {
+    if let Some(index) = suppressed.iter().position(|id| id == request_id) {
+        suppressed.remove(index);
+        return true;
+    }
+    false
 }
 
 // 响应体只在请求完成后异步读取：读取失败或跳过都写一条可检索记录，不影响页面请求。
@@ -289,24 +334,16 @@ fn capture_response_body(
         );
         return;
     }
-    let over_limit = {
+    {
         let mut inflight = context.inflight.borrow_mut();
+        let mut suppressed = context.suppressed.borrow_mut();
         let now = Instant::now();
         prune_inflight(&mut inflight, now);
+        // 并发已满时淘汰最早发起的读取，把配额让给最新请求。
         if inflight.len() >= MAX_PENDING_BODY_CAPTURES {
-            true
-        } else {
-            inflight.insert(request_id.to_string(), now);
-            false
+            evict_oldest_inflight(&mut inflight, &mut suppressed);
         }
-    };
-    if over_limit {
-        let _ = request_log::append(
-            &context.path,
-            json!({"event":"responseBody", "label":context.label,
-                "requestId":request_id, "skipped":"too many concurrent response body reads"}),
-        );
-        return;
+        inflight.insert(request_id.to_string(), now);
     }
     let Ok(params) = serde_json::to_string(&json!({"requestId": request_id})) else {
         context.inflight.borrow_mut().remove(request_id);
@@ -316,10 +353,15 @@ fn capture_response_body(
     let label = context.label.clone();
     let max_bytes = context.max_response_size;
     let inflight = context.inflight.clone();
+    let suppressed = context.suppressed.clone();
     let request = request_id.to_string();
     let handler =
         CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, body| {
             inflight.borrow_mut().remove(&request);
+            // 已被淘汰的读取不再写结果，避免与后续请求错配。
+            if take_suppressed(&mut suppressed.borrow_mut(), &request) {
+                return Ok(());
+            }
             let record = if result.is_err() {
                 json!({"event":"responseBody", "label":label, "requestId":request,
                     "skipped":"response body unavailable"})
@@ -525,6 +567,7 @@ unsafe fn install(
         label: label.to_string(),
         max_response_size,
         inflight: Rc::new(RefCell::new(HashMap::new())),
+        suppressed: Rc::new(RefCell::new(VecDeque::new())),
     });
     let mut receivers = Vec::new();
     for event in [
@@ -765,6 +808,31 @@ mod tests {
         );
         drop(log);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn evicted_body_reads_are_suppressed_once() {
+        let now = Instant::now();
+        let mut inflight = HashMap::new();
+        inflight.insert(
+            "old".to_string(),
+            now.checked_sub(Duration::from_secs(5)).expect("time"),
+        );
+        inflight.insert("new".to_string(), now);
+        let mut suppressed = VecDeque::new();
+        assert!(evict_oldest_inflight(&mut inflight, &mut suppressed));
+        assert!(!inflight.contains_key("old"));
+        assert!(inflight.contains_key("new"));
+        // 被淘汰的读取只抑制一次，避免错配记录。
+        assert!(take_suppressed(&mut suppressed, "old"));
+        assert!(!take_suppressed(&mut suppressed, "old"));
+        assert!(!take_suppressed(&mut suppressed, "new"));
+        // 抑制集合有界，长期运行不会无限增长。
+        for index in 0..(MAX_SUPPRESSED_IDS + 10) {
+            inflight.insert(format!("id-{index}"), now);
+            evict_oldest_inflight(&mut inflight, &mut suppressed);
+        }
+        assert!(suppressed.len() <= MAX_SUPPRESSED_IDS);
     }
 
     #[test]

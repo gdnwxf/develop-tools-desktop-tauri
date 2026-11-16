@@ -265,6 +265,7 @@ pub fn action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
         }
         "reload" => view.reload().map_err(|e| e.to_string())?,
         "stop" => view.eval("window.stop()").map_err(|e| e.to_string())?,
+        // Windows 上 wry 的 close_devtools/is_devtools_open 为空实现，只能打开。
         "devtools" => view.open_devtools(),
         "focus" => view.set_focus().map_err(|e| e.to_string())?,
         "navigate" => view
