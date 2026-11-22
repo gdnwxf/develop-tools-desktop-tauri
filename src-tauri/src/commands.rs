@@ -8,11 +8,7 @@ use tauri::Manager;
 // 命令参数永不作为日志载荷；远程站点不能借宿主能力读取配置或执行本机操作。
 fn authorize(caller: &tauri::Webview) -> Result<(), String> {
     let url = caller.url().map_err(|e| e.to_string())?;
-    if caller.label() != "shell"
-        || !((url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-            || (matches!(url.scheme(), "http" | "https")
-                && url.host_str() == Some("tauri.localhost")))
-    {
+    if caller.label() != "shell" || !crate::config::is_host_page(caller.app_handle(), &url) {
         return Err("该命令只允许本地宿主页面调用".into());
     }
     Ok(())

@@ -78,6 +78,22 @@ pub fn same_origin(a: &str, b: &str) -> bool {
     }
 }
 
+/// 宿主页面白名单：本地 tauri 协议页面，或 dev 模式下 Tauri CLI 注入的 devUrl origin。
+/// `cargo tauri dev` 会让宿主 WebView 加载 CLI 内置静态服务器（如 127.0.0.1:1430），
+/// 发布构建没有 devUrl，行为与仅允许 tauri 协议时一致。
+pub fn is_host_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &tauri::Url) -> bool {
+    if (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"))
+    {
+        return true;
+    }
+    app.config()
+        .build
+        .dev_url
+        .as_ref()
+        .is_some_and(|dev| dev.origin() == url.origin())
+}
+
 pub fn parse_groups(raw: &Value, state: &mut Value) -> Result<Vec<Group>, String> {
     let items = raw
         .as_array()

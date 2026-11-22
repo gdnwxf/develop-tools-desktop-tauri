@@ -33,13 +33,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .setup(|app| {
             let profile = app.state::<config::Config>().data_dir.join("shell-profile");
             let window_config = app.config().app.windows.first().ok_or("宿主窗口配置缺失")?;
+            let handle = app.handle().clone();
             tauri::WebviewWindowBuilder::from_config(app, window_config)?
                 .data_directory(profile)
-                .on_navigation(|url| {
-                    (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-                        || (matches!(url.scheme(), "http" | "https")
-                            && url.host_str() == Some("tauri.localhost"))
-                })
+                .on_navigation(move |url| config::is_host_page(&handle, url))
                 .build()?;
             views::start_navigation_monitor(app.handle().clone());
             session::start(app.handle().clone());
