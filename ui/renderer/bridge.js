@@ -39,6 +39,20 @@
     saveExpandedGroups: (keys) => patch({ expandedGroups: keys }),
     saveLastTab: (siteId) => patch({ lastTab: siteId }),
     saveOpenTabs: (ids, clones) => patch({ openTabs: ids, clonedSites: clones }),
+    // 分屏布局快照(树结构/焦点/布局模式),随状态文件持久化
+    saveSplitLayout: (layout) => patch({ splitLayout: layout }),
+    // 接口调试:读当前视图日志里的请求列表 / 在页面内重发请求
+    currentViewLabel: () => devToolsTarget,
+    apiToolList: (label, keyword) => invoke('api_tool_list', { label, keyword: keyword || '' }),
+    apiToolSend: (payload) => invoke('api_tool_send', payload),
+    // 定时任务
+    schedulerList: () => invoke('scheduler_list'),
+    schedulerSave: (task) => invoke('scheduler_save', { task }),
+    schedulerRemove: (id) => invoke('scheduler_remove', { id }),
+    schedulerToggle: (id, enabled) => invoke('scheduler_toggle', { id, enabled }),
+    schedulerRun: (id) => invoke('scheduler_run', { id }),
+    // 定时任务执行日志列表(关键字筛选)
+    schedulerRuns: (keyword) => invoke('scheduler_runs', { keyword: keyword || '' }),
     registerRequestLog: (label) => logAction('register', label),
     openRequestLog: (label) => logAction('open', label),
     openRequestLogFolder: (label) => logAction('folder', label),

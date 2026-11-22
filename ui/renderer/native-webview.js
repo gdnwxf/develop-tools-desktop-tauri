@@ -58,7 +58,11 @@
           if (this._closed) throw new Error('视图已关闭');
           if (!this._created) {
             this._url = url;
-            await window.desktopApp.invoke('create_view', { label: this.label, siteId: this.dataset.siteId, sourceId: this.dataset.sourceId || '', url, bounds: this.getBounds() });
+            let dynamicSite = null;
+            if (this.dataset.dynamicSite) {
+              try { dynamicSite = JSON.parse(this.dataset.dynamicSite); } catch (error) { dynamicSite = null; }
+            }
+            await window.desktopApp.invoke('create_view', { label: this.label, siteId: this.dataset.siteId, sourceId: this.dataset.sourceId || '', url, bounds: this.getBounds(), dynamicSite });
             this._created = true;
             this._resolveReady(this);
             if (window.nativeViewLayout) window.nativeViewLayout.schedule();

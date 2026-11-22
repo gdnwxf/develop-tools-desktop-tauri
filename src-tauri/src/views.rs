@@ -87,7 +87,27 @@ pub async fn create(app: tauri::AppHandle, args: Value) -> Result<Value, String>
     }
     let id = args["siteId"].as_str().ok_or("缺少站点 ID")?;
     let cfg = app.state::<Config>();
-    let site = if let Some(site) = cfg.site(id) {
+    let dynamic = args.get("dynamicSite").filter(|value| !value.is_null());
+    let site = if let Some(dynamic) = dynamic {
+        // 打开新页面创建的动态站点:只存在于当前会话,按 URL 直接建视图
+        if !id.starts_with("page-dyn-") {
+            return Err("动态页面 ID 无效".into());
+        }
+        let url = dynamic["url"].as_str().ok_or("动态页面 URL 缺失")?;
+        config::http_url(url)?;
+        Site {
+            id: id.into(),
+            group_key: dynamic["groupKey"].as_str().unwrap_or("page").to_string(),
+            kind: dynamic["type"].as_str().unwrap_or("web").to_string(),
+            name: dynamic["name"].as_str().unwrap_or(url).to_string(),
+            url: url.into(),
+            user: String::new(),
+            password: String::new(),
+            first_open_url: String::new(),
+            login_path: String::new(),
+            optsecret: String::new(),
+        }
+    } else if let Some(site) = cfg.site(id) {
         site
     } else if let Some(mut source) = args["sourceId"].as_str().and_then(|s| cfg.site(s)) {
         if !id.starts_with("copy-") {
@@ -131,7 +151,11 @@ pub async fn create(app: tauri::AppHandle, args: Value) -> Result<Value, String>
     let bounds: Bounds =
         serde_json::from_value(args["bounds"].clone()).map_err(|e| e.to_string())?;
     let rect = bounds.rect()?;
-    let log_path = request_log::session_path(&cfg.data_dir, &label)?;
+    let log_path = if dynamic.is_some() {
+        request_log::site_session_path(&cfg.data_dir, &site.group_key, &site.name)?
+    } else {
+        request_log::session_path(&cfg.data_dir, &label)?
+    };
     let profile = cfg.data_dir.join("webview-profile");
     let view_info = ViewInfo {
         site: site.clone(),
@@ -167,7 +191,9 @@ pub async fn create(app: tauri::AppHandle, args: Value) -> Result<Value, String>
         })
         .on_new_window(move |url, features| {
             if !matches!(url.scheme(), "http" | "https" | "about") { return tauri::webview::NewWindowResponse::Deny; }
-            if popup_site.kind == "bytebase" && config::same_origin(&popup_site.url, url.as_str()) {
+            let open_in_place = (popup_site.kind == "bytebase" || popup_site.group_key == "page")
+                && config::same_origin(&popup_site.url, url.as_str());
+            if open_in_place {
                 if let Some(view) = app_popup.get_webview(&popup_label) { let _ = view.navigate(url); }
                 return tauri::webview::NewWindowResponse::Deny;
             }
@@ -249,6 +275,30 @@ pub async fn evaluate(app: &tauri::AppHandle, label: &str, script: &str) -> Resu
         .map_err(|_| "页面脚本执行超时")?
         .ok_or("页面已关闭")?;
     serde_json::from_str(&result).map_err(|e| format!("脚本返回格式无效：{e}"))
+}
+
+/// 异步脚本：先同步启动（脚本内部发起 fetch 并写 window.__devopsApiToolResult），
+/// 再轮询该全局变量直到有结果或超时。用于接口调试这类必须等待网络结果的场景。
+pub async fn evaluate_async(
+    app: &tauri::AppHandle,
+    label: &str,
+    script: &str,
+    timeout_ms: u64,
+) -> Result<Value, String> {
+    evaluate(app, label, script).await?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        if std::time::Instant::now() > deadline {
+            return Err("页面内请求超时".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let probe = evaluate(app, label, "window.__devopsApiToolResult").await?;
+        let value = probe.get("value").cloned().unwrap_or(Value::Null);
+        if !value.is_null() {
+            let _ = evaluate(app, label, "(window.__devopsApiToolResult=null,true)").await;
+            return Ok(value);
+        }
+    }
 }
 
 pub fn action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {

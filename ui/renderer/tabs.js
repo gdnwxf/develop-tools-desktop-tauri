@@ -26,13 +26,62 @@ function getGroupIcon(site) {
   return g ? g.icon : getProfile(site.type).icon;
 }
 
+
+/* ===== tab 上按钮(关闭/刷新)的自定义提示气泡:四边闭合 ===== */
+let tabButtonTipTimer = null;
+
+function tabButtonTipElement() {
+  let tip = document.getElementById('tabButtonTip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'tabButtonTip';
+    tip.className = 'tab-button-tip';
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function hideTabButtonTip() {
+  if (tabButtonTipTimer) { clearTimeout(tabButtonTipTimer); tabButtonTipTimer = null; }
+  const tip = document.getElementById('tabButtonTip');
+  if (tip) tip.classList.remove('visible');
+}
+
+function showTabButtonTip(target) {
+  const text = target && target.dataset ? target.dataset.tip : '';
+  if (!text) return;
+  const tip = tabButtonTipElement();
+  tip.textContent = text;
+  tip.classList.add('visible');
+  const rect = target.getBoundingClientRect();
+  const tipRect = tip.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - tipRect.width / 2;
+  left = Math.max(4, Math.min(left, window.innerWidth - tipRect.width - 4));
+  let top = rect.top - tipRect.height - 6;
+  if (top < 4) top = rect.bottom + 6;
+  tip.style.left = Math.round(left) + 'px';
+  tip.style.top = Math.round(top) + 'px';
+}
+
+function bindTabButtonTip(target) {
+  if (!target) return;
+  target.addEventListener('mouseenter', () => {
+    if (tabButtonTipTimer) clearTimeout(tabButtonTipTimer);
+    tabButtonTipTimer = setTimeout(() => { tabButtonTipTimer = null; showTabButtonTip(target); }, 120);
+  });
+  target.addEventListener('mouseleave', hideTabButtonTip);
+  target.addEventListener('mousedown', hideTabButtonTip);
+}
+
 /* ===== 右侧标签栏:每个已展开(有 webview)的站点一个 tab ===== */
 function renderTabs() {
   tabBar.innerHTML = '';
   const openSites = [];
-  groups.forEach((g) => g.sites.forEach((s) => { if (webviews[s.id]) openSites.push(s); }));
+  groups.forEach((g) => g.sites.forEach((s) => { if (webviews[s.id] && !s.paneOnly) openSites.push(s); }));
   // 克隆 tab 追加在最后(与打开顺序一致)
-  clonedSites.forEach((s) => { if (webviews[s.id]) openSites.push(s); });
+  clonedSites.forEach((s) => { if (webviews[s.id] && !s.paneOnly) openSites.push(s); });
+  // 动态页面(打开新页面)追加在最后
+  dynamicPages.forEach((s) => { if (webviews[s.id] && !s.paneOnly) openSites.push(s); });
   if (!openSites.length) { tabBar.classList.add('empty'); return; }
   tabBar.classList.remove('empty');
   // 按 tabOrder(拖动排序结果)排列;syncTabOrder 已保证全部命中
@@ -57,9 +106,14 @@ function renderTabs() {
     tab.innerHTML =
       '<span class="tab-icon">' + getGroupIcon(site) + '</span>' +
       '<span class="tab-name"></span>' +
-      '<span class="tab-close" title="关闭">×</span>';
+      // 刷新图标用字符画:两个 ↻ 叠放(其中一个旋转 180°),形成首尾相接的圆形双箭头
+      '<span class="tab-reload" data-tip="刷新">' + '<span class="tab-reload-glyph">↻</span>' + '<span class="tab-reload-glyph tab-reload-glyph-flip">↻</span>' + '</span>' +
+      '<span class="tab-close" data-tip="关闭">×</span>';
     tab.querySelector('.tab-name').textContent = site.name;
-    tab.addEventListener('click', (e) => { if (e.target.classList.contains('tab-close')) return; selectSite(site); });
+    tab.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.tab-close, .tab-reload')) return;
+      selectSite(site);
+    });
     // hover 进入时决定气泡方向:默认展示在左侧;左侧空间不足且右侧足够时翻到右侧,
     // 右侧也靠边时保持左侧(避免两侧都被 #content overflow:hidden 裁剪)
     tab.addEventListener('mouseenter', () => {
@@ -71,7 +125,12 @@ function renderTabs() {
       const spaceRight = barRect.right - rect.right;
       tab.classList.toggle('tip-right', spaceLeft < NEED && spaceRight >= NEED);
     });
+    // 右上角关闭;原来关闭的位置改放刷新
     tab.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(site); });
+    tab.querySelector('.tab-reload').addEventListener('click', (e) => { e.stopPropagation(); reloadSite(site); });
+    // 关闭/刷新用自定义气泡(原生 title 无法带完整边框)
+    bindTabButtonTip(tab.querySelector('.tab-close'));
+    bindTabButtonTip(tab.querySelector('.tab-reload'));
     // 恢复登录状态标记
     const st = siteStatus[site.id];
     if (st === 'ok') tab.classList.add('batch-ok');
@@ -131,6 +190,7 @@ function closeTab(site) {
 function closeAllTabs() {
   groups.forEach((g) => g.sites.forEach((s) => { if (webviews[s.id]) destroyWebview(s); }));
   clonedSites.slice().forEach((s) => { if (webviews[s.id]) destroyWebview(s); });
+  dynamicPages.slice().forEach((s) => { if (webviews[s.id]) destroyWebview(s); });
   renderTabs();
   currentSiteId = null;
   content.classList.remove('loaded');

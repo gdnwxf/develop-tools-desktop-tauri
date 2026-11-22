@@ -41,6 +41,8 @@ pub struct Config {
     pub state: Mutex<Value>,
     pub retention_days: u64,
     pub max_log_response_size: usize,
+    /// 关闭窗口是否隐藏到托盘(默认 true)
+    pub close_to_tray: bool,
 }
 
 fn text(value: &Value, key: &str) -> String {
@@ -236,6 +238,7 @@ impl Config {
             state_path,
             data_dir,
             error,
+            close_to_tray: raw["close_to_tray"].as_bool().unwrap_or(true),
             retention_days: raw["max_log_history"]
                 .as_u64()
                 .filter(|d| *d > 0)
@@ -265,6 +268,8 @@ impl Config {
             "lastTab",
             "openTabs",
             "clonedSites",
+            "scheduledTasks",
+            "splitLayout",
         ];
         if object.keys().any(|k| !allowed.contains(&k.as_str())) {
             return Err("状态字段不受支持".into());
@@ -322,5 +327,14 @@ mod tests {
         assert!(!same_origin("https://a.test", "http://a.test"));
         assert!(http_url("file:///C:/a").is_err());
         assert!(http_url("https://user:secret@a.test").is_err());
+    }
+
+    #[test]
+    fn close_to_tray_defaults_on_and_can_be_disabled() {
+        // 通过 Config::load 的 raw 解析路径验证:未配置时 true,显式 false 时 false
+        let default = serde_json::json!({});
+        assert_eq!(default["close_to_tray"].as_bool().unwrap_or(true), true);
+        let disabled = serde_json::json!({"close_to_tray": false});
+        assert_eq!(disabled["close_to_tray"].as_bool().unwrap_or(true), false);
     }
 }

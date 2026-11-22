@@ -76,6 +76,77 @@ async fn dispatch(app: &tauri::AppHandle, op: &str, args: Value) -> Result<Value
             }
             Ok(json!(true))
         }
+        "api_tool_list" => {
+            let label = args["label"].as_str().ok_or("缺少标签")?;
+            let info = views::info(app, label)?;
+            let dir = info.log_path.parent().ok_or("日志目录缺失")?;
+            let list = request_log::list_requests(dir, args["keyword"].as_str().unwrap_or_default(), 300);
+            Ok(json!({"ok": true, "items": list["items"], "total": list["total"], "dir": dir.to_string_lossy()}))
+        }
+        "api_tool_send" => {
+            let label = args["label"].as_str().ok_or("缺少标签")?;
+            let url = args["url"].as_str().ok_or("缺少请求地址")?;
+            http_url(url)?;
+            let info = views::info(app, label)?;
+            if !crate::config::same_origin(&info.site.url, url) {
+                return Ok(json!({"ok": false, "error": "跨源请求暂不支持：请在页面内发起同源请求"}));
+            }
+            let method = args["method"].as_str().unwrap_or("GET").to_ascii_uppercase();
+            if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].contains(&method.as_str()) {
+                return Ok(json!({"ok": false, "error": "不支持的请求方法"}));
+            }
+            let headers = args["headers"].clone();
+            let body = args["body"].as_str().unwrap_or_default();
+            let cfg = json!({"url": url, "method": method, "headers": headers, "body": body, "limit": 262144});
+            let start = format!(
+                "(() => {{ window.__devopsApiToolResult = null; const cfg = {cfg}; \
+                 const init = {{ method: cfg.method, headers: cfg.headers }}; \
+                 if (cfg.body && cfg.method !== 'GET' && cfg.method !== 'HEAD') init.body = cfg.body; \
+                 fetch(cfg.url, init).then(async (res) => {{ \
+                   const text = await res.text(); const out = {{}}; \
+                   res.headers.forEach((value, key) => {{ out[key] = value; }}); \
+                   window.__devopsApiToolResult = {{ status: res.status, statusText: res.statusText, headers: out, \
+                     body: text.slice(0, cfg.limit), truncated: text.length > cfg.limit, via: 'page' }}; \
+                 }}).catch((error) => {{ window.__devopsApiToolResult = {{ error: String(error) }}; }}); return true; }})()"
+            );
+            let started = std::time::Instant::now();
+            let result = views::evaluate_async(app, label, &start, 15000).await;
+            let duration = started.elapsed().as_millis() as u64;
+            let cfg_app = app.state::<Config>();
+            let log_path = request_log::tool_session_path(&cfg_app.data_dir, &info.site.group_key, &info.site.name);
+            if let Ok(path) = &log_path {
+                let record = match &result {
+                    Ok(value) => json!({"event": "api-tool", "method": method, "url": url,
+                        "statusCode": value["status"], "responseBody": value["body"], "durationMs": duration,
+                        "error": value["error"]}),
+                    Err(error) => json!({"event": "api-tool", "method": method, "url": url,
+                        "error": error, "durationMs": duration}),
+                };
+                let _ = request_log::append(path, record);
+            }
+            match result {
+                Ok(value) => {
+                    let mut payload = value;
+                    payload["ok"] = json!(payload.get("error").is_none());
+                    payload["durationMs"] = json!(duration);
+                    payload["logPath"] = json!(log_path.map(|p| p.to_string_lossy().to_string()).unwrap_or_default());
+                    Ok(payload)
+                }
+                Err(error) => Ok(json!({"ok": false, "error": error, "durationMs": duration})),
+            }
+        }
+        "scheduler_list" => Ok(crate::scheduler::list(app)),
+        "scheduler_save" => crate::scheduler::save(app, &args["task"]),
+        "scheduler_remove" => crate::scheduler::remove(app, args["id"].as_str().ok_or("缺少任务 ID")?),
+        "scheduler_toggle" => crate::scheduler::toggle(
+            app,
+            args["id"].as_str().ok_or("缺少任务 ID")?,
+            args["enabled"].as_bool().unwrap_or(false),
+        ),
+        "scheduler_runs" => Ok(crate::scheduler::list_runs(app, args["keyword"].as_str().unwrap_or_default())),
+        "scheduler_run" => {
+            crate::scheduler::run(app.clone(), args["id"].as_str().ok_or("缺少任务 ID")?, true).await
+        }
         "log_action" => log_action(app, &args),
         "renderer_log" => {
             // 原界面日志可能带完整 URL；这里只保留不含参数/凭据的诊断条目。

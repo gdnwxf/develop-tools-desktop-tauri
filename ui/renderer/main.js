@@ -110,8 +110,22 @@ async function init() {
     saveOpenTabs();
     renderTabs();
     const restoreSite = (state.lastTab && openIds.includes(state.lastTab)) ? findSiteById(state.lastTab) : allSites.find((s) => webviews[s.id]);
-    if (restoreSite) selectSite(restoreSite);
-    else { currentSiteId = null; content.classList.remove('loaded'); applyAppBackground(null); }
+    // 先按上次的分屏快照还原布局;还原失败再退回单窗选中
+    let restored = false;
+    if (typeof splitRestore === 'function') {
+      try { restored = splitRestore(state.splitLayout); } catch (error) { log('[init] 恢复分屏失败:', error.message); }
+    }
+    if (restored) {
+      const inLayout = restoreSite && splitLeaves(splitTree).some((leaf) => leaf.siteId === restoreSite.id);
+      if (inLayout) markDevToolsTarget(webviews[restoreSite.id]);
+      else if (restoreSite) selectSite(restoreSite);
+    } else if (restoreSite) {
+      selectSite(restoreSite);
+    } else {
+      currentSiteId = null;
+      content.classList.remove('loaded');
+      applyAppBackground(null);
+    }
   } else {
     currentSiteId = null;
     content.classList.remove('loaded');

@@ -8,7 +8,7 @@
  * 克隆 tab 随 openTabs 一并持久化(重启恢复,序号续接防 id 碰撞),关闭即从持久化中移除。
  * 优先复制原 tab 当前访问地址;原 tab 未打开则用配置 url。
  */
-function cloneSite(site) {
+function cloneSite(site, options) {
   cloneCounter++;
   // 源为克隆时沿 sourceId 回溯到原始配置站点(克隆链共享同一 sourceId)
   const rootId = site.isClone ? (site.sourceId || site.id) : site.id;
@@ -29,8 +29,9 @@ function cloneSite(site) {
   clonedSites.push(clone);
   // 不手动 createWebview:selectSite 内部会在 webview 不存在时创建并 renderTabs,
   // 若此处先创建会导致 selectSite 跳过 renderTabs,tab 不显示
-  selectSite(clone);
+  if (!options || options.select !== false) selectSite(clone);
   log('[clone]', clone.name, '<-', url);
+  return clone;
 }
 
 function createWebview(site, persist) {
@@ -39,6 +40,12 @@ function createWebview(site, persist) {
   wv.dataset.siteId = site.id;
   wv.dataset.sourceId = site.sourceId || '';
   wv.dataset.isClone = site.isClone ? '1' : '';
+  // 动态页面(打开新页面)由 Rust 侧按 URL 直接建视图,日志落 logs/page/<host>/
+  if (site.isDynamic) {
+    wv.dataset.dynamicSite = JSON.stringify({
+      name: site.name, url: site.url, type: site.type || 'web', groupKey: site.groupKey || 'page',
+    });
+  }
 
   const saved = state.lastUrls[site.id];
   const targetUrl = (saved && saved.url && saved.url.startsWith(site.url)) ? saved.url : site.url;
@@ -46,6 +53,7 @@ function createWebview(site, persist) {
 
   webviewContainer.appendChild(wv);
   webviews[site.id] = wv;
+  if (typeof splitIsActive === 'function' && splitIsActive()) webviewContainer.classList.add('split');
   bindWebviewEvents(wv, site);
   wv.loadURL(targetUrl).catch(() => {});
   let requestLogRegistered = false;
@@ -83,6 +91,8 @@ function destroyWebview(site) {
   }
   delete webviews[site.id];
   markSiteStatus(site.id, null);
+  // 分屏中关闭页面:该格上收,剩余面板自适应
+  if (typeof splitHandleSiteClosed === 'function') splitHandleSiteClosed(site.id);
   saveOpenTabs();
 }
 
@@ -145,6 +155,21 @@ function markDevToolsTarget(wv) {
 
 /* ===== 切换站点:只切显示/隐藏,不重新加载 ===== */
 function selectSite(site, persist) {
+  // 分屏中:已在该布局里的站点只切换焦点,不重排;布局外的站点先回单窗
+  if (typeof splitIsActive === 'function' && splitIsActive()) {
+    const leaf = splitLeaves(splitTree).find((item) => item.siteId === site.id);
+    if (leaf) {
+      splitFocusLeafId = leaf.id;
+      splitSyncPanes();
+      currentSiteId = site.id;
+      document.querySelectorAll('.site-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === site.id));
+      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === site.id));
+      if (persist !== false) saveLastTab();
+      applyAppBackground(site);
+      return;
+    }
+    splitExit(site.id);
+  }
   // 确保所在分组已展开(仅侧栏),再创建本站点 webview(不自动打开整组)
   const g = groups.find((grp) => grp.sites.some((s) => s.id === site.id));
   if (g && !expandedGroups.has(g.key)) expandGroup(g);
@@ -185,7 +210,16 @@ function applyAppBackground(site) {
 function bindWebviewEvents(wv, site) {
   // 原生菜单由系统管理；站点获得焦点只更新 DevTools 目标。
   wv.addEventListener('focus', () => {
-    if (site.id === currentSiteId) markDevToolsTarget(wv);
+    if (site.id === currentSiteId) { markDevToolsTarget(wv); return; }
+    // 分屏中点击某个面板:切焦点与 tab 高亮
+    if (typeof splitFocusSite === 'function' && typeof splitIsActive === 'function' && splitIsActive()) {
+      currentSiteId = site.id;
+      splitFocusSite(site);
+      saveLastTab();
+      markDevToolsTarget(wv);
+      return;
+    }
+    markDevToolsTarget(wv);
   });
 
   // 克隆 tab 与普通 tab 走同一套导航/自动登录事件链路(cookie 共享失效时用继承的账密自动登录)。

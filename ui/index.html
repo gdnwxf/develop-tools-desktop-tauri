@@ -18,11 +18,21 @@
           <button id="expandAllBtn" class="header-btn" title="全部展开">+</button>
           <button id="collapseAllBtn" class="header-btn" title="全部折叠">−</button>
         </div>
-        <button id="clearLogsBtn" class="header-btn" title="清空所有日志文件">🗑</button>
+      </div>
+      <!-- 侧栏顶部:按站点名/分组名简单筛选 -->
+      <div class="sidebar-filter">
+        <div class="sidebar-filter-box">
+          <input id="sidebarFilter" class="sidebar-filter-input" type="text" placeholder="筛选站点 / 分组…" spellcheck="false" />
+          <button id="sidebarFilterClear" class="sidebar-filter-clear" type="button" title="清空筛选" hidden>✕</button>
+        </div>
       </div>
       <ul id="siteList"><!-- 分组与站点由 renderer 模块注入 --></ul>
+      <!-- 底部按钮一排:刷新 / 打开新页面 / 清空日志 -->
       <div class="sidebar-footer">
         <button id="reloadBtn" title="刷新当前页">🔄 刷新</button>
+        <button id="schedulerBtn" class="footer-icon-btn" title="定时任务">⏰</button>
+        <button id="openPageBtn" class="footer-icon-btn" title="打开新页面（输入页面地址）">🌐</button>
+        <button id="clearLogsBtn" class="footer-icon-btn" title="清空所有日志文件">🗑</button>
       </div>
     </aside>
 
@@ -40,6 +50,123 @@
       </div>
     </main>
   </div>
+  <!-- 打开新页面:输入地址后在 page 组下新建站点(仅当前会话,不写配置文件) -->
+  <div id="pageDialog" class="modal-mask" hidden>
+    <form id="pageForm" class="modal-card" autocomplete="off">
+      <div class="modal-title">打开新页面</div>
+      <input id="pageUrlInput" class="modal-input" type="text" placeholder="http://example.com/path" spellcheck="false" />
+      <div id="pageDialogError" class="modal-error"></div>
+      <div class="modal-actions">
+        <button type="button" id="pageCancelBtn" class="modal-btn">取消</button>
+        <button type="submit" id="pageConfirmBtn" class="modal-btn primary">打开</button>
+      </div>
+    </form>
+  </div>
+  <!-- 接口调试:左侧请求/返回,右侧当前视图日志里的请求列表(不含 OPTIONS) -->
+  <div id="apiToolDialog" class="modal-mask" hidden>
+    <div class="apitool-card">
+      <div class="apitool-head">
+        <span class="apitool-title">接口调试</span>
+        <span id="apiToolTag" class="apitool-tag"></span>
+        <button type="button" id="apiToolCloseBtn" class="apitool-close" title="关闭">×</button>
+      </div>
+      <div class="apitool-body">
+        <div class="apitool-left">
+          <div class="apitool-row">
+            <select id="apiToolMethod" class="api-tool-method">
+              <option>GET</option><option>POST</option><option>PUT</option>
+              <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+            </select>
+            <input id="apiToolUrl" class="modal-input" type="text" placeholder="请求地址" spellcheck="false" />
+          </div>
+          <div class="apitool-label">请求头(JSON)</div>
+          <textarea id="apiToolHeaders" class="apitool-textarea small" spellcheck="false"></textarea>
+          <div class="apitool-label">请求参数(请求体)</div>
+          <textarea id="apiToolBody" class="apitool-textarea" spellcheck="false"></textarea>
+          <div class="apitool-actions">
+            <button type="button" id="apiToolSendBtn" class="modal-btn primary">发送</button>
+            <button type="button" id="apiToolClearBtn" class="modal-btn">清空</button>
+            <span id="apiToolStatus" class="apitool-status"></span>
+          </div>
+          <div class="apitool-label">返回参数</div>
+          <pre id="apiToolResponse" class="apitool-response"></pre>
+        </div>
+        <div class="apitool-right">
+          <div class="apitool-right-head">
+            <span class="apitool-label">请求列表(不含 OPTIONS) <span id="apiToolCount" class="apitool-count"></span></span>
+            <button type="button" id="apiToolRefreshBtn" class="modal-btn">刷新</button>
+          </div>
+          <input id="apiToolKeyword" class="modal-input" type="text" placeholder="关键字筛选:方法 / 地址" spellcheck="false" />
+          <div id="apiToolList" class="apitool-list"></div>
+          <div id="apiToolDir" class="apitool-dir"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- 定时任务:左栏表单(名称/cron/分组/站点/地址),右栏任务列表 -->
+  <div id="schedulerDialog" class="modal-mask" hidden>
+    <div class="apitool-card sched-card">
+      <div class="apitool-head">
+        <span class="apitool-title">定时任务</span>
+        <span id="schedulerTag" class="apitool-tag"></span>
+        <button type="button" id="schedulerCloseBtn" class="apitool-close" title="关闭">×</button>
+      </div>
+      <div class="apitool-body">
+        <div class="apitool-left">
+          <label class="apitool-label" for="schedName">任务名称</label>
+          <input id="schedName" class="modal-input" type="text" placeholder="例如:每日订单统计" spellcheck="false" />
+          <label class="apitool-label" for="schedCron">cron 表达式(分 时 日 月 周)</label>
+          <input id="schedCron" class="modal-input" type="text" placeholder="0 9 * * 1-5" spellcheck="false" />
+          <div class="sched-hint">例:0 9 * * * 每天 9:00;*/30 * * * * 每 30 分钟;0 9 * * 1-5 工作日 9:00</div>
+          <div class="apitool-row">
+            <select id="schedGroup" class="api-tool-method"></select>
+            <select id="schedSite" class="api-tool-method"></select>
+          </div>
+          <label class="apitool-label" for="schedUrl">请求地址</label>
+          <div class="apitool-row">
+            <select id="schedMethod" class="api-tool-method">
+              <option>GET</option><option>POST</option><option>PUT</option>
+              <option>PATCH</option><option>DELETE</option><option>HEAD</option>
+            </select>
+            <input id="schedUrl" class="modal-input" type="text" placeholder="https://example.com/api/report" spellcheck="false" />
+          </div>
+          <label class="apitool-label" for="schedHeaders">请求头(JSON,支持 {{localStorage:KEY}} 占位符)</label>
+          <textarea id="schedHeaders" class="apitool-textarea small" spellcheck="false" placeholder='{"Authorization": "Bearer {{localStorage:token}}"}'></textarea>
+          <label class="apitool-label" for="schedBody">请求参数(请求体,GET/HEAD 忽略)</label>
+          <textarea id="schedBody" class="apitool-textarea small" spellcheck="false"></textarea>
+          <!-- 当前页面请求列表:当前没有打开的页面时整块隐藏 -->
+          <div id="schedPageLogSection" hidden>
+            <div class="apitool-label">
+              当前页面请求列表 <span id="schedPageLogCount" class="apitool-count"></span>
+              <button type="button" id="schedPageLogRefreshBtn" class="modal-btn sched-inline-btn">刷新</button>
+            </div>
+            <input id="schedPageLogKeyword" class="modal-input" type="text" placeholder="筛选:方法 / 地址(来自当前页面日志,不含 OPTIONS)" spellcheck="false" />
+            <div id="schedPageLogList" class="apitool-list sched-page-log"></div>
+          </div>
+          <label class="sched-enabled"><input id="schedEnabled" type="checkbox" checked /> 启用任务</label>
+          <div class="apitool-actions">
+            <button type="button" id="schedSaveBtn" class="modal-btn primary">保存任务</button>
+            <button type="button" id="schedResetBtn" class="modal-btn">新建</button>
+            <span id="schedStatus" class="apitool-status"></span>
+          </div>
+        </div>
+        <div class="apitool-right">
+          <div class="apitool-right-head">
+            <span class="apitool-label">任务列表 <span id="schedCount" class="apitool-count"></span></span>
+            <button type="button" id="schedRefreshBtn" class="modal-btn">刷新</button>
+          </div>
+          <div id="schedList" class="apitool-list"></div>
+          <div class="apitool-right-head">
+            <span class="apitool-label">执行日志 <span id="schedRunsCount" class="apitool-count"></span></span>
+            <button type="button" id="schedRunsRefreshBtn" class="modal-btn">刷新</button>
+          </div>
+          <input id="schedRunsKeyword" class="modal-input" type="text" placeholder="筛选:任务名 / 地址 / 状态码 / 错误" spellcheck="false" />
+          <div id="schedRunsList" class="apitool-list"></div>
+          <div id="schedDir" class="apitool-dir"></div>
+        </div>
+      </div>
+    </div>
+  </div>
   <!-- renderer 模块按序加载,共享全局作用域:state -> sidebar -> webview -> navigation -> tabs -> menus -> main(入口) -->
   <script src="renderer/bridge.js"></script>
   <script src="renderer/native-layout.js"></script>
@@ -50,6 +177,10 @@
   <script src="renderer/navigation.js"></script>
   <script src="renderer/navigation-scripts.js"></script>
   <script src="renderer/tabs.js"></script>
+  <script src="renderer/page.js"></script>
+  <script src="renderer/split.js"></script>
+  <script src="renderer/api-tool.js"></script>
+  <script src="renderer/scheduler.js"></script>
   <script src="renderer/menus.js"></script>
   <script src="renderer/main.js"></script>
 </body>

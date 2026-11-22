@@ -41,28 +41,79 @@ function getStrategy(type) {
   return 'grafana';
 }
 
-/* ===== 渲染左侧分组列表 ===== */
+/* ===== 渲染左侧分组树 =====
+ * 保留分组折叠结构;组内站点按“最近 7 天打开”排一次(启动时算好,之后不重排)。
+ * 顶部筛选:分组名命中显示整组,否则只显示命中的站点。
+ */
+function recentSiteOrder() {
+  const order = new Map();
+  (Array.isArray(recentSites) ? recentSites : []).forEach((item, index) => {
+    if (!item) return;
+    if (item.siteId && !order.has(item.siteId)) order.set(item.siteId, index);
+    if (item.url) order.set('url:' + item.url, index);
+  });
+  return order;
+}
+
+let sidebarOrderIds = null;
+
+function ensureSidebarOrder() {
+  if (sidebarOrderIds) return;
+  const order = recentSiteOrder();
+  const ranked = [];
+  groups.forEach((group) => group.sites.forEach((site) => {
+    const byId = order.get(site.id);
+    const byUrl = site.url ? order.get('url:' + site.url) : undefined;
+    const recentIndex = byId !== undefined ? byId : (byUrl !== undefined ? byUrl : null);
+    ranked.push({ id: site.id, recentIndex, configIndex: ranked.length });
+  }));
+  ranked.sort((a, b) => {
+    if (a.recentIndex === null && b.recentIndex === null) return a.configIndex - b.configIndex;
+    if (a.recentIndex === null) return 1;
+    if (b.recentIndex === null) return -1;
+    return a.recentIndex - b.recentIndex;
+  });
+  sidebarOrderIds = new Map(ranked.map((item, index) => [item.id, index]));
+}
+
+function sortSitesByStableOrder(sites) {
+  ensureSidebarOrder();
+  return sites.slice().sort((a, b) => {
+    const ai = sidebarOrderIds.has(a.id) ? sidebarOrderIds.get(a.id) : Number.MAX_SAFE_INTEGER;
+    const bi = sidebarOrderIds.has(b.id) ? sidebarOrderIds.get(b.id) : Number.MAX_SAFE_INTEGER;
+    return ai - bi;
+  });
+}
+
 function renderSidebar() {
   siteList.innerHTML = '';
+  const needle = String(sidebarFilterText || '').trim().toLowerCase();
   groups.forEach((g) => {
+    const groupHit = needle && ((g.label || '').toLowerCase().includes(needle) || (g.key || '').toLowerCase().includes(needle));
+    const matched = needle
+      ? g.sites.filter((site) => groupHit || String(site.name || '').toLowerCase().includes(needle))
+      : g.sites;
+    if (needle && !matched.length) return;
+    const sites = sortSitesByStableOrder(matched);
+    const expandedNow = expandedGroups.has(g.key) || !!needle;
     const grp = document.createElement('li');
-    grp.className = 'group' + (expandedGroups.has(g.key) ? ' expanded' : '');
+    grp.className = 'group' + (expandedNow ? ' expanded' : '');
     grp.dataset.key = g.key;
 
     const head = document.createElement('div');
     head.className = 'group-head';
     head.innerHTML =
-      '<span class="group-arrow">' + (expandedGroups.has(g.key) ? '▾' : '▸') + '</span>' +
+      '<span class="group-arrow">' + (expandedNow ? '▾' : '▸') + '</span>' +
       '<span class="group-icon">' + g.icon + '</span>' +
       '<span class="group-label"></span>' +
-      '<span class="group-count">' + g.sites.length + '</span>';
+      '<span class="group-count">' + sites.length + '</span>';
     head.querySelector('.group-label').textContent = g.label;
     head.addEventListener('click', () => toggleGroup(g));
     grp.appendChild(head);
 
     const ul = document.createElement('ul');
     ul.className = 'group-sites';
-    g.sites.forEach((site) => {
+    sites.forEach((site) => {
       const li = document.createElement('li');
       const btn = document.createElement('button');
       btn.className = 'site-btn';
@@ -71,15 +122,10 @@ function renderSidebar() {
         '<span class="site-icon">' + g.icon + '</span>' +
         '<span class="site-name"></span>';
       btn.querySelector('.site-name').textContent = site.name;
-      // hover 提示完整菜单名称(名称过长被截断时可见)
       btn.title = site.name;
-      // 只提供分组色值(--site-accent 由 CSS 在 hover/active 时取用);普通项不写 inline 背景:
-      // 切换站点只切 active class 不重绘侧栏,inline 底色会压住 .site-btn.active / :hover 的分组色
       const prof = getProfile(site.type);
-      const groupColor = g.color || prof.accent;
-      btn.style.setProperty('--site-accent', groupColor);
+      btn.style.setProperty('--site-accent', g.color || prof.accent);
       btn.addEventListener('click', () => selectSite(site));
-      // 右键站点:弹菜单提供复制链接(已打开则复制当前访问地址,否则复制配置中的 url)
       btn.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         showSiteContextMenu(e.clientX, e.clientY, site);
@@ -90,6 +136,12 @@ function renderSidebar() {
     grp.appendChild(ul);
     siteList.appendChild(grp);
   });
+  if (!siteList.children.length) {
+    const empty = document.createElement('li');
+    empty.className = 'site-empty';
+    empty.textContent = needle ? '没有匹配的站点' : '还没有站点';
+    siteList.appendChild(empty);
+  }
 }
 
 /* ===== 展开/收起分组 =====

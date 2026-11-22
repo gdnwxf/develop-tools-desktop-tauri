@@ -116,6 +116,71 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+// 请求头采集:交给接口调试重放使用。敏感头只记录占位，避免把凭据写入磁盘。
+const MAX_HEADER_COUNT: usize = 64;
+const MAX_HEADER_NAME_LEN: usize = 128;
+const MAX_HEADER_VALUE_LEN: usize = 512;
+const SENSITIVE_HEADER_KEYWORDS: &[&str] = &[
+    "authorization",
+    "cookie",
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "api-key",
+    "apikey",
+    "auth",
+    "otp",
+];
+const MANAGED_HEADERS: &[&str] = &["host", "content-length", "connection", "accept-encoding"];
+
+fn is_sensitive_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    SENSITIVE_HEADER_KEYWORDS
+        .iter()
+        .any(|keyword| lower.contains(keyword))
+}
+
+fn truncate_header_value(text: &str) -> String {
+    if text.chars().count() <= MAX_HEADER_VALUE_LEN {
+        return text.to_string();
+    }
+    let clipped: String = text.chars().take(MAX_HEADER_VALUE_LEN).collect();
+    format!("{clipped}...[truncated]")
+}
+
+/// 把 DevTools 的 request.headers 转成可落盘的请求头：
+/// 丢弃网络栈管理的头与伪头，敏感头打码，超长值截断，数量与长度都有上限。
+pub fn sanitize_request_headers(value: &Value) -> Option<Value> {
+    let object = value.as_object()?;
+    let mut output = serde_json::Map::new();
+    for (raw_name, raw_value) in object.iter().take(MAX_HEADER_COUNT) {
+        let name = raw_name.trim();
+        if name.is_empty() || name.len() > MAX_HEADER_NAME_LEN || name.starts_with(':') {
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        if MANAGED_HEADERS.contains(&lower.as_str()) {
+            continue;
+        }
+        let text = match raw_value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
+        let stored = if is_sensitive_header(name) {
+            "[REDACTED]".to_string()
+        } else {
+            truncate_header_value(&text)
+        };
+        output.insert(name.to_string(), Value::String(stored));
+    }
+    if output.is_empty() {
+        None
+    } else {
+        Some(Value::Object(output))
+    }
+}
+
 struct NetworkLog {
     path: PathBuf,
     label: String,
@@ -210,8 +275,10 @@ impl NetworkLog {
                 }
                 .to_string();
                 let url = request_log::sanitized_url(url);
+                let headers = sanitize_request_headers(&params["request"]["headers"]);
                 self.write(json!({"event":"request", "label":self.label,
-                    "requestId":id, "method":method, "url":url, "resourceType":resource_type}));
+                    "requestId":id, "method":method, "url":url, "resourceType":resource_type,
+                    "requestHeaders":headers}));
                 self.pending.insert(
                     id.into(),
                     Request {
@@ -728,9 +795,12 @@ mod tests {
         );
         assert!(log.pending.is_empty());
         let lines = std::fs::read_to_string(&path).unwrap();
-        assert!(!lines.contains("private"));
-        assert!(!lines.contains("headers"));
-        assert!(!lines.contains("postData"));
+        // 请求头现在会落盘供接口调试重放，但敏感值必须打码、响应头与请求体仍不写
+        assert!(!lines.contains("private"), "凭据/请求体不得落盘");
+        assert!(lines.contains("requestHeaders"), "请求头需要采集");
+        assert!(lines.contains("[REDACTED]"), "敏感请求头必须打码");
+        assert!(!lines.contains("Set-Cookie"), "响应头不落盘");
+        assert!(!lines.contains("postData"), "请求体不落盘");
         let records: Vec<Value> = lines
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
@@ -748,6 +818,41 @@ mod tests {
         assert_eq!(records[4]["event"]["error"], "request failed");
         drop(log);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn request_headers_are_filtered_and_redacted() {
+        let headers = json!({
+            "Accept": "application/json",
+            "X-Trace": "keep-me",
+            "Authorization": "Bearer secret-token",
+            "Cookie": "session=abc",
+            "Host": "a.test",
+            "content-length": "42",
+            ":authority": "a.test",
+            "X-Long": "y".repeat(MAX_HEADER_VALUE_LEN + 20)
+        });
+        let sanitized = sanitize_request_headers(&headers).expect("应保留部分请求头");
+        assert_eq!(sanitized["Accept"], "application/json");
+        assert_eq!(sanitized["X-Trace"], "keep-me");
+        assert_eq!(sanitized["Authorization"], "[REDACTED]");
+        assert_eq!(sanitized["Cookie"], "[REDACTED]");
+        assert!(sanitized.get("Host").is_none(), "网络栈管理的头不记录");
+        assert!(sanitized.get("content-length").is_none());
+        assert!(sanitized.get(":authority").is_none(), "伪头不记录");
+        let long = sanitized["X-Long"].as_str().unwrap();
+        assert!(long.ends_with("...[truncated]"));
+        assert!(long.chars().count() <= MAX_HEADER_VALUE_LEN + "...[truncated]".len());
+        // 空对象 / 非对象直接忽略
+        assert!(sanitize_request_headers(&json!({})).is_none());
+        assert!(sanitize_request_headers(&json!("plain")).is_none());
+        // 数量上限
+        let mut many = serde_json::Map::new();
+        for index in 0..(MAX_HEADER_COUNT + 10) {
+            many.insert(format!("X-H{index}"), json!("v"));
+        }
+        let limited = sanitize_request_headers(&Value::Object(many)).unwrap();
+        assert_eq!(limited.as_object().unwrap().len(), MAX_HEADER_COUNT);
     }
 
     #[test]
