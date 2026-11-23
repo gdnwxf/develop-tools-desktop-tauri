@@ -132,13 +132,13 @@ function showAppToast(title, message, kind) {
   return toast;
 }
 
-/* 复制当前站点日志文件内容到剪贴板(大文件由宿主只给尾部);没有日志文件时给出可见提示 */
+/* 复制当前站点日志文件到系统剪贴板(系统级“复制文件”,粘贴得到文件本体) */
 function copySiteLog(site) {
   const name = site ? site.name : '';
   const wv = site && webviews[site.id];
   if (!wv) {
     log('[request-log] 复制失败:', name, 'tab 未打开');
-    showAppToast('复制日志失败', '这个标签还没有打开的页面', 'warn');
+    showAppToast('复制日志文件失败', '这个标签还没有打开的页面', 'warn');
     return;
   }
   let label;
@@ -146,23 +146,21 @@ function copySiteLog(site) {
     label = wv.getWebContentsId();
   } catch (error) {
     log('[request-log] 复制失败:', name, '页面尚未就绪', error.message);
-    showAppToast('复制日志失败', '页面还在加载,请稍后再试', 'warn');
+    showAppToast('复制日志文件失败', '页面还在加载,请稍后再试', 'warn');
     return;
   }
-  window.desktopApp.readRequestLog(label).then((res) => {
+  window.desktopApp.copyRequestLogFile(label).then((res) => {
     if (!res || !res.ok) {
       const reason = (res && res.error) || '未知错误';
       log('[request-log] 复制失败:', name, reason);
-      showAppToast('复制日志失败', reason, 'warn');
+      showAppToast('复制日志文件失败', reason, 'warn');
       return;
     }
-    return window.desktopApp.copyText(res.text).then(() => {
-      log('[request-log] 已复制日志:', name, res.path, '| 字节', res.size || 0, res.truncated ? '| 仅复制尾部内容' : '');
-      showAppToast('已复制日志文件', name + (res.truncated ? '(内容较大,仅复制尾部)' : ''), 'ok');
-    });
+    log('[request-log] 已复制日志文件:', name, res.path);
+    showAppToast('已复制日志文件', name + ' : 可直接粘贴文件', 'ok');
   }).catch((e) => {
     log('[request-log] 复制异常:', name, e.message);
-    showAppToast('复制日志失败', e.message, 'warn');
+    showAppToast('复制日志文件失败', e.message, 'warn');
   });
 }
 

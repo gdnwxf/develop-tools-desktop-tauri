@@ -184,6 +184,28 @@ async fn dispatch(app: &tauri::AppHandle, op: &str, args: Value) -> Result<Value
     }
 }
 
+/// 用系统 PowerShell 的 Set-Clipboard -Path 把文件放进剪贴板(粘贴得到文件本体)。
+/// 路径通过环境变量传递,避免拼进命令字符串带来转义/注入问题。
+fn copy_file_to_clipboard(path: &std::path::Path) -> Result<(), String> {
+    let mut command = std::process::Command::new("powershell.exe");
+    command
+        .args(["-NoProfile", "-NonInteractive", "-Command",
+               "Set-Clipboard -LiteralPath $env:DEVOPS_CLIP_FILE"])
+        .env("DEVOPS_CLIP_FILE", path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command.output().map_err(|e| format!("调用系统剪贴板失败: {e}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let first = detail.lines().next().unwrap_or("").trim();
+        return Err(if first.is_empty() { "复制到系统剪贴板失败".to_string() } else { first.to_string() });
+    }
+    Ok(())
+}
+
 fn log_action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
     let action = args["action"].as_str().ok_or("缺少日志动作")?;
     let cfg = app.state::<Config>();
@@ -209,22 +231,17 @@ fn log_action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
         "clear" => {
             request_log::clear_path(&info.log_path)?;
         }
-        // 复制日志文件:返回内容(超过 2MB 只给尾部)
-        "read" => {
-            if !info.log_path.exists() {
-                return Ok(json!({"ok":false,"error":"当前页面还没有日志文件"}));
-            }
-            let (text, truncated, size) = request_log::read_tail(&info.log_path, 2 * 1024 * 1024)?;
-            if text.is_empty() {
+        // 复制日志文件:交给系统剪贴板(等价资源管理器 Ctrl+C 复制文件),不读取内容
+        "copy" => {
+            let meta = match std::fs::metadata(&info.log_path) {
+                Ok(meta) => meta,
+                Err(_) => return Ok(json!({"ok":false,"error":"当前页面还没有日志文件"})),
+            };
+            if meta.len() == 0 {
                 return Ok(json!({"ok":false,"error":"日志文件还是空的"}));
             }
-            return Ok(json!({
-                "ok": true,
-                "path": info.log_path.to_string_lossy(),
-                "size": size,
-                "truncated": truncated,
-                "text": text,
-            }));
+            copy_file_to_clipboard(&info.log_path)?;
+            return Ok(json!({"ok":true,"path":info.log_path.to_string_lossy()}));
         }
         _ => return Err("不支持的日志动作".into()),
     }

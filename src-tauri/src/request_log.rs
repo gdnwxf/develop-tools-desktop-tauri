@@ -54,24 +54,6 @@ pub fn tool_session_path(root: &Path, group: &str, site: &str) -> Result<PathBuf
     Ok(dir.join("requests.log"))
 }
 
-/// 读取日志文件内容，供渲染层“复制日志文件”使用。
-/// 超过 `max_bytes` 时只返回尾部（最新内容），并用 truncated 标记。
-pub fn read_tail(path: &Path, max_bytes: u64) -> Result<(String, bool, u64), String> {
-    let meta = fs::metadata(path).map_err(|e| format!("日志文件不可读: {e}"))?;
-    let size = meta.len();
-    let limit = if max_bytes == 0 { 2 * 1024 * 1024 } else { max_bytes };
-    if size <= limit {
-        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        return Ok((text, false, size));
-    }
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
-    file.seek(SeekFrom::Start(size - limit)).map_err(|e| e.to_string())?;
-    let mut buf = Vec::with_capacity(limit as usize);
-    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-    Ok((String::from_utf8_lossy(&buf).into_owned(), true, size))
-}
-
 const LIST_EVENTS: [&str; 4] = ["completed", "error", "timeout", "cancelled"];
 
 /// 读取某个日志目录里的请求列表：只要完成/失败终态、过滤 OPTIONS、支持关键字、时间倒序。
