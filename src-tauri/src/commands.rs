@@ -209,6 +209,23 @@ fn log_action(app: &tauri::AppHandle, args: &Value) -> Result<Value, String> {
         "clear" => {
             request_log::clear_path(&info.log_path)?;
         }
+        // 复制日志文件:返回内容(超过 2MB 只给尾部)
+        "read" => {
+            if !info.log_path.exists() {
+                return Ok(json!({"ok":false,"error":"当前页面还没有日志文件"}));
+            }
+            let (text, truncated, size) = request_log::read_tail(&info.log_path, 2 * 1024 * 1024)?;
+            if text.is_empty() {
+                return Ok(json!({"ok":false,"error":"日志文件还是空的"}));
+            }
+            return Ok(json!({
+                "ok": true,
+                "path": info.log_path.to_string_lossy(),
+                "size": size,
+                "truncated": truncated,
+                "text": text,
+            }));
+        }
         _ => return Err("不支持的日志动作".into()),
     }
     Ok(json!({"ok":true,"path":info.log_path.to_string_lossy()}))

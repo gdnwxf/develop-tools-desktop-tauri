@@ -19,6 +19,7 @@ fn entries(kind: &str, has_site: bool) -> Result<Vec<(&'static str, &'static str
             ("split-down", "向下分屏"),
             ("copy-link", "复制链接"),
             ("api-tool", "接口调试"),
+            ("copy-log", "复制日志文件"),
             ("open-log", "日志文件"),
             ("open-log-folder", "日志文件夹"),
             ("clear-log", "清空日志"),
@@ -84,7 +85,7 @@ mod tests {
     #[test]
     fn menus_preserve_site_actions_and_blank_tab_behavior() {
         assert_eq!(entries("site", true).unwrap().len(), 2);
-        assert_eq!(entries("tab", true).unwrap().len(), 14);
+        assert_eq!(entries("tab", true).unwrap().len(), 15);
         assert_eq!(
             entries("tab", false).unwrap(),
             vec![("close-all", "关闭全部标签")]
@@ -108,6 +109,15 @@ mod tests {
             vec![("split-right", "Split right"), ("split-down", "Split down"), ("close-pane", "Close pane")]
         );
         assert!(entries("unknown", true).is_err());
+    }
+
+    #[test]
+    fn tab_menu_has_copy_log_before_open_log() {
+        let items = entries("tab", true).unwrap();
+        let names: Vec<_> = items.iter().map(|(_, text)| *text).collect();
+        let copy = names.iter().position(|t| *t == "复制日志文件").expect("缺少菜单项: 复制日志文件");
+        let open = names.iter().position(|t| *t == "日志文件").expect("缺少菜单项: 日志文件");
+        assert_eq!(copy + 1, open, "复制日志文件 应紧邻并在日志文件之前");
     }
 
     #[test]

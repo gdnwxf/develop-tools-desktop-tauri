@@ -30,6 +30,7 @@ async function openSiteMenu(kind, site, x, y) {
           case 'split-right': splitSiteRight(target); break;
           case 'split-down': splitSiteDown(target); break;
           case 'copy-link': copySiteLink(target, '[context-menu]'); break;
+          case 'copy-log': copySiteLog(target); break;
           case 'open-log': openSiteLog(target); break;
           case 'open-log-folder': openSiteLogFolder(target); break;
           case 'clear-log': clearSiteLog(target); break;

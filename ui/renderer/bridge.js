@@ -57,6 +57,7 @@
     // 定时任务执行日志列表(关键字筛选)
     schedulerRuns: (keyword) => invoke('scheduler_runs', { keyword: keyword || '' }),
     registerRequestLog: (label) => logAction('register', label),
+    readRequestLog: (label) => logAction('read', label),
     openRequestLog: (label) => logAction('open', label),
     openRequestLogFolder: (label) => logAction('folder', label),
     clearRequestLog: (label) => logAction('clear', label),
