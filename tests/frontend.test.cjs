@@ -1143,8 +1143,8 @@ test('scheduler: hides the current-page request list when no page is open', asyn
 test('scheduler: page-group (dynamic) tab also loads its request list', async () => {
   const pageLog = { ok: true, total: 2, dir: '/home/u/.my_devops/logs/page/admin.test',
     items: [
-      { time: 1, method: 'GET', url: 'https://admin.test/api/list', statusCode: 200, requestHeaders: { Authorization: 'Bearer t' }, requestBody: '' },
-      { time: 2, method: 'POST', url: 'https://admin.test/api/report', statusCode: 200, requestHeaders: {}, requestBody: '{}' },
+      { time: 1700000000, durationMs: 5, method: 'GET', url: 'https://admin.test/api/list', statusCode: 200, requestHeaders: { Authorization: 'Bearer t' }, requestBody: '' },
+      { time: 1700000001, durationMs: 12, method: 'POST', url: 'https://admin.test/api/report', statusCode: 200, requestHeaders: {}, requestBody: '{}' },
     ] };
   const calls = [];
   const { context, getNode } = dialogContext(() => ({
@@ -1167,6 +1167,10 @@ test('scheduler: page-group (dynamic) tab also loads its request list', async ()
   assert.deepEqual(calls[0], ['view-dyn-1', '']);
   const rows = getNode('schedPageLogList').children;
   assert.equal(rows.length, 2);
+  // 请求列表要显示请求时间(本地时间)与耗时
+  const firstMeta = rows[0].querySelector('.apitool-item-meta').textContent;
+  assert.match(firstMeta, /· 5ms$/, '应显示耗时: ' + firstMeta);
+  assert.ok(!/^\s*·/.test(firstMeta), '时间部分不能为空: ' + firstMeta);
   rows[0].dispatch('click', {});
   assert.equal(getNode('schedUrl').value, 'https://admin.test/api/list');
   assert.match(getNode('schedHeaders').value, /Authorization/);

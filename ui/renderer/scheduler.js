@@ -292,7 +292,13 @@ function renderPageLogRequests(items, total) {
     const url = document.createElement('div');
     url.className = 'apitool-item-url';
     url.textContent = item.url;
-    row.append(head, url);
+    // 请求时间(日志 ts 为 epoch 秒,转本地时间)与耗时
+    const meta = document.createElement('div');
+    meta.className = 'apitool-item-meta';
+    const time = item.time ? new Date(Number(item.time) * 1000).toLocaleString() : '';
+    meta.textContent = time
+      + (item.durationMs === null || item.durationMs === undefined ? '' : ' · ' + item.durationMs + 'ms');
+    row.append(head, url, meta);
     row.addEventListener('click', () => {
       schedUrl.value = item.url || '';
       if (item.method) schedMethod.value = item.method;
