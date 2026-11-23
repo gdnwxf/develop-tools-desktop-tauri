@@ -1,6 +1,6 @@
 {
   "name": "devops-tools-tauri",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "DevOps 工具集 Tauri 2 / WebView2 桌面版",
   "license": "GPL-3.0",
