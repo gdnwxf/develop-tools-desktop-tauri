@@ -5,6 +5,7 @@ mod context_menu;
 mod cron;
 mod logging;
 mod log_writer;
+mod recent_store;
 mod request_log;
 mod scheduler;
 mod session;

@@ -45,6 +45,9 @@
     currentViewLabel: () => devToolsTarget,
     apiToolList: (label, keyword) => invoke('api_tool_list', { label, keyword: keyword || '' }),
     apiToolSend: (payload) => invoke('api_tool_send', payload),
+    // “最近打开”独立存储(recent_sites.json)
+    recentSites: () => invoke('recent_list'),
+    touchRecentSite: (siteId, name, url, groupKey) => invoke('recent_touch', { siteId, name, url, groupKey }),
     // 定时任务
     schedulerList: () => invoke('scheduler_list'),
     schedulerSave: (task) => invoke('scheduler_save', { task }),

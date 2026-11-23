@@ -179,6 +179,12 @@ function selectSite(site, persist) {
   }
   currentSiteId = site.id;
   markDevToolsTarget(webviews[site.id]);
+  // 记录“最近打开”(独立文件 recent_sites.json)
+  if (typeof window.desktopApp.touchRecentSite === 'function') {
+    Promise.resolve(window.desktopApp.touchRecentSite(site.id, site.name, site.url, site.groupKey || ''))
+      .then((res) => { if (res && Array.isArray(res.items)) recentSites = res.items; })
+      .catch(() => {});
+  }
 
   document.querySelectorAll('.site-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === site.id));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === site.id));

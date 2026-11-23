@@ -50,6 +50,13 @@ async function init() {
   settings = await window.desktopApp.getSettings();
   state = await window.desktopApp.getState();
   state.lastUrls = state.lastUrls || {};
+  // 读取“最近打开”独立存储(失败时保持空表)
+  try {
+    const recent = await window.desktopApp.recentSites();
+    if (recent && Array.isArray(recent.items)) recentSites = recent.items;
+  } catch (error) {
+    log('[init] 读取最近打开失败:', error.message);
+  }
   // 恢复 tab 顺序(拖动排序结果随 openTabs 持久化);未打开的 id 由 syncTabOrder 惰性剔除
   tabOrder.length = 0;
   if (Array.isArray(state.openTabs)) tabOrder.push(...state.openTabs);

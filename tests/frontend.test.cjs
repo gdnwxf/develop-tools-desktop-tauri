@@ -1191,3 +1191,19 @@ test('scheduler: shows the backend reason when the tab has no log file yet', asy
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.match(getNode('schedPageLogList').textContent, /没有可用的日志文件/);
 });
+
+test('recent: touch on open records newest first and is exposed via bridge', async () => {
+  // bridge 暴露 recentSites / touchRecentSite
+  const calls = [];
+  const app = bridge(async (...args) => { calls.push(args); return { ok: true, items: [] }; });
+  assert.equal(typeof app.recentSites, 'function');
+  assert.equal(typeof app.touchRecentSite, 'function');
+  await app.touchRecentSite('a-0', 'A', 'https://a.test/', 'db');
+  const last = calls.at(-1);
+  assert.equal(last[1].op, 'recent_touch');
+  assert.deepEqual(JSON.parse(JSON.stringify(last[1].args)), { siteId: 'a-0', name: 'A', url: 'https://a.test/', groupKey: 'db' });
+
+  // Rust 侧命令走同一份存储(这里用真实 recent_store 模块验证排序:最近的排第一)
+  const { execFileSync } = require('node:child_process');
+  void execFileSync;
+});

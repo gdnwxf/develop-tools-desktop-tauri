@@ -135,6 +135,20 @@ async fn dispatch(app: &tauri::AppHandle, op: &str, args: Value) -> Result<Value
                 Err(error) => Ok(json!({"ok": false, "error": error, "durationMs": duration})),
             }
         }
+        "recent_list" => Ok(json!({
+            "ok": true,
+            "items": crate::recent_store::read(&app.state::<Config>().data_dir),
+        })),
+        "recent_touch" => Ok(json!({
+            "ok": true,
+            "items": crate::recent_store::touch(
+                &app.state::<Config>().data_dir,
+                args["siteId"].as_str().unwrap_or_default(),
+                args["name"].as_str().unwrap_or_default(),
+                args["url"].as_str().unwrap_or_default(),
+                args["groupKey"].as_str().unwrap_or_default(),
+            ),
+        })),
         "scheduler_list" => Ok(crate::scheduler::list(app)),
         "scheduler_save" => crate::scheduler::save(app, &args["task"]),
         "scheduler_remove" => crate::scheduler::remove(app, args["id"].as_str().ok_or("缺少任务 ID")?),
