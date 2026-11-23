@@ -42,49 +42,9 @@ function getStrategy(type) {
 }
 
 /* ===== 渲染左侧分组树 =====
- * 保留分组折叠结构;组内站点按“最近 7 天打开”排一次(启动时算好,之后不重排)。
- * 顶部筛选:分组名命中显示整组,否则只显示命中的站点。
+ * 顺序严格与配置文件一致(不按最近打开重排);顶部筛选:分组名命中显示整组,
+ * 否则只显示命中的站点;筛选时自动展开、无命中的分组隐藏。
  */
-function recentSiteOrder() {
-  const order = new Map();
-  (Array.isArray(recentSites) ? recentSites : []).forEach((item, index) => {
-    if (!item) return;
-    if (item.siteId && !order.has(item.siteId)) order.set(item.siteId, index);
-    if (item.url) order.set('url:' + item.url, index);
-  });
-  return order;
-}
-
-let sidebarOrderIds = null;
-
-function ensureSidebarOrder() {
-  if (sidebarOrderIds) return;
-  const order = recentSiteOrder();
-  const ranked = [];
-  groups.forEach((group) => group.sites.forEach((site) => {
-    const byId = order.get(site.id);
-    const byUrl = site.url ? order.get('url:' + site.url) : undefined;
-    const recentIndex = byId !== undefined ? byId : (byUrl !== undefined ? byUrl : null);
-    ranked.push({ id: site.id, recentIndex, configIndex: ranked.length });
-  }));
-  ranked.sort((a, b) => {
-    if (a.recentIndex === null && b.recentIndex === null) return a.configIndex - b.configIndex;
-    if (a.recentIndex === null) return 1;
-    if (b.recentIndex === null) return -1;
-    return a.recentIndex - b.recentIndex;
-  });
-  sidebarOrderIds = new Map(ranked.map((item, index) => [item.id, index]));
-}
-
-function sortSitesByStableOrder(sites) {
-  ensureSidebarOrder();
-  return sites.slice().sort((a, b) => {
-    const ai = sidebarOrderIds.has(a.id) ? sidebarOrderIds.get(a.id) : Number.MAX_SAFE_INTEGER;
-    const bi = sidebarOrderIds.has(b.id) ? sidebarOrderIds.get(b.id) : Number.MAX_SAFE_INTEGER;
-    return ai - bi;
-  });
-}
-
 function renderSidebar() {
   siteList.innerHTML = '';
   const needle = String(sidebarFilterText || '').trim().toLowerCase();
@@ -94,7 +54,7 @@ function renderSidebar() {
       ? g.sites.filter((site) => groupHit || String(site.name || '').toLowerCase().includes(needle))
       : g.sites;
     if (needle && !matched.length) return;
-    const sites = sortSitesByStableOrder(matched);
+    const sites = matched;   // 保持配置文件里的原始顺序
     const expandedNow = expandedGroups.has(g.key) || !!needle;
     const grp = document.createElement('li');
     grp.className = 'group' + (expandedNow ? ' expanded' : '');
